@@ -3,13 +3,16 @@ import numpy as np
 import math
 import time
 
-def curve_masking(points, curve_coefficients,image_shape):
-    points_x = list(map(lambda x:x[0],points))
-    points_y = list(map(lambda x:x[1],points))
-    if curve_coefficients is not None:
-        diffs = np.abs(np.polyval(curve_coefficients, points_x) - points_y)
+def curve_masking(points, curve_coefficients,image_shape,enabled = False):
+    if enabled:
+        points_x = list(map(lambda x:x[0],points))
+        points_y = list(map(lambda x:x[1],points))
+        if curve_coefficients is not None:
+            diffs = np.abs(np.polyval(curve_coefficients, points_x) - points_y)
 
-        return np.where(diffs<image_shape[0]/5)[0]
+            return np.where(diffs<image_shape[0]/5)[0]
+        else:
+            return list(range(len(points)))
     else:
         return list(range(len(points)))
 
@@ -106,6 +109,33 @@ def sharpen_image_gray(image, sharpen_strength=3):
 
     return sharpened_image
 
+def rotate_points(edges,points):
+    height, width = edges.shape[:2]
+    center_x = width // 2
+    center_y = height // 2
+    rotated_points = np.array([[center_x + (y - center_y), center_y - (x - center_x)] for x, y in points], dtype=np.int32)
+    return rotated_points
+
+def rev_rotate_points(edges,points):
+    height, width = edges.shape[:2]
+    center_x = width // 2
+    center_y = height // 2
+    rotated_points = np.array([[center_x - (y - center_y), center_y + (x - center_x)] for x, y in points], dtype=np.int32)
+    return rotated_points
+
+def rotate_lines(edges,lines):
+    height, width = edges.shape[:2]
+    center_x = width // 2
+    center_y = height // 2
+    rotated_lines = np.array([[[y1, height - x1, y2, height - x2]] for [[x1, y1, x2, y2]] in lines], dtype=np.int32)
+    return rotated_lines
+
+def rev_rotate_lines(edges,lines):
+        height, width = edges.shape[:2]
+        center_x = width // 2
+        center_y = height // 2
+        rotated_lines = np.array([[[width - y1, x1, width - y2, x2]] for [x1, y1, x2, y2] in lines], dtype=np.int32)
+        return rotated_lines
 
 def image_analysis(image,paxos = None,old_curve = None):
     #image[image<80] = image[image<80]*0.5
@@ -133,106 +163,136 @@ def image_analysis(image,paxos = None,old_curve = None):
         max_dis = 1.2*paxos
     checks = 10
     # Apply HoughLinesP to detect lines
-    lines = cv2.HoughLinesP(edges, 1, np.pi/180, threshold=10, minLineLength=20, maxLineGap=10)
+    dlines = cv2.HoughLinesP(edges, 1, np.pi/180, threshold=10, minLineLength=20, maxLineGap=10)
     
-    if lines is None:
+    if dlines is None or len(dlines)<5:
         return no_lines_imshow(edges,image,gray)
-    #print(len(lines))
-    # Draw lines on the original image
-    result_image = image.copy()
     
-    lines = np.array(list(map(lambda x:list(form_line(x[0])),lines)))
+    for g in range(2):
+        if g==1:
+            width, height = edges.shape[:2]
+            lines = rotate_lines(edges,dlines)
+        else:
+            height, width = edges.shape[:2]
+            lines = dlines
+        #print(len(lines))
+        # Draw lines on the original image
+        result_image = image.copy()
+        
+        lines = np.array(list(map(lambda x:list(form_line(x[0])),lines)))
 
-    points = np.array(list(map(lambda x:[(x[0]+x[2])/2,(x[1]+x[3])/2],lines)))
-    masked_idxs = curve_masking(points,old_curve,image.shape)
-    lines = lines[masked_idxs]
-    if lines is None:
-        return no_lines_imshow(edges,image,gray)
-    #lines = lines[np.argsort(lines[:,0])]
+        points = np.array(list(map(lambda x:[(x[0]+x[2])/2,(x[1]+x[3])/2],lines)))
+        masked_idxs = curve_masking(points,old_curve,image.shape)
+        lines = lines[masked_idxs]
+        if lines is None:
+            return no_lines_imshow(edges,image,gray)
+        #lines = lines[np.argsort(lines[:,0])]
 
 
 
-    points = [[] for i in range(edges.shape[1]//step)]
+        points = [[] for i in range(width//step)]
 
-    #edges.shape[1]//10
+        #width//10
 
 
-    idx = -1
-    if lines is not None and len(lines)>1:
-        for line in lines:
-            idx+=1
-            x1, y1, x2, y2 = line
-            for i in (np.array(list(range(x1 - (x1-1)%step,x2,step)))-1)//step:
-                points[i].append(idx)
+        idx = -1
+        if lines is not None and len(lines)>1:
+            for line in lines:
+                idx+=1
+                x1, y1, x2, y2 = line
+                for i in (np.array(list(range(x1 - (x1-1)%step,x2,step)))-1)//step:
+                    points[i].append(idx)
 
-    i = -1
-    
-    for sample_idxs in points:
-        i+=1
-        status = 0
-        for l in range(checks):
-            if len(sample_idxs)>=2:
-                sample = lines[sample_idxs]
-                slopes = np.array(list(zip(range(len(sample)),[slope(*list(line)) for line in sample])))
-                slopes = slopes[np.argsort(slopes[:,1])]
-                diff = np.diff(slopes[:,1])
-                if not np.isnan(diff).all() and abs(np.nanmin(diff))<angle_limit:
-                    min_idx = np.nanargmin(diff)
-                    line2idx = [int(slopes[min_idx,0]),int(slopes[min_idx+1,0])]
-                    dis = diss(*sample[line2idx])
-                    #print(dis)
-                    #input()
-                    if dis>min_dis and dis<max_dis:
-                        points[i] = [sample_idxs[line2idx[0]],sample_idxs[line2idx[1]]]
-                        status =1
-                        break
+        i = -1
+        
+        for sample_idxs in points:
+            i+=1
+            status = 0
+            for l in range(checks):
+                if len(sample_idxs)>=2:
+                    sample = lines[sample_idxs]
+                    slopes = np.array(list(zip(range(len(sample)),[slope(*list(line)) for line in sample])))
+                    slopes = slopes[np.argsort(slopes[:,1])]
+                    diff = np.diff(slopes[:,1])
+                    if not np.isnan(diff).all() and abs(np.nanmin(diff))<angle_limit:
+                        min_idx = np.nanargmin(diff)
+                        line2idx = [int(slopes[min_idx,0]),int(slopes[min_idx+1,0])]
+                        dis = diss(*sample[line2idx])
+                        #print(dis)
+                        #input()
+                        if dis>min_dis and dis<max_dis:
+                            points[i] = [sample_idxs[line2idx[0]],sample_idxs[line2idx[1]]]
+                            status =1
+                            break
+                        else:
+                            sample_idxs = np.delete(sample_idxs,[line2idx])
+                            #points[i] = []
                     else:
-                        sample_idxs = np.delete(sample_idxs,[line2idx])
                         #points[i] = []
+                        break
                 else:
-                    #points[i] = []
+                    points[i] = []
                     break
-            else:
+            if status==0:
                 points[i] = []
-                break
-        if status==0:
-            points[i] = []
+            
+
+
+
+
+        lines1 = []
+        lines2 = []
+        for idxs in points:
+            item = lines[idxs]
+            if len(item)>0:
+                if (item[0][1]+item[0][3])/2 > (item[1][1]+item[1][3])/2:
+                    lines1.append(item[0])
+                    lines2.append(item[1])
+                else:
+                    lines2.append(item[0])
+                    lines1.append(item[1])
+
+        #lines = lines[list(set([item for sublist in points for item in sublist]))]
+
+        if g==0:
+            lines1_g0 = lines1
+            lines2_g0 = lines2
+            lines_g0 = lines
+        if g==1:
+            lines1 = rev_rotate_lines(edges,np.array(lines1))
+            lines1 = lines1_g0+[np.array(l[0]) for l in lines1]
+            lines2 = rev_rotate_lines(edges,np.array(lines2))
+            lines2 = lines2_g0+[np.array(l[0]) for l in lines2]
+            lines = np.concatenate((lines,lines_g0))
+        if lines1 is not None and len(lines1)>1:
+            #print(lines1)
+            for line in lines1:
+                #print(line)
+                x1, y1, x2, y2 = line
+                cv2.line(result_image, (x1, y1), (x2, y2), (0, 255, 0), 5)
+
+        if lines2 is not None and len(lines2)>1:
+            for line in lines2:
+                x1, y1, x2, y2 = line
+                cv2.line(result_image, (x1, y1), (x2, y2), (0, 0, 255), 5)
+        
+        points1 = np.array(list(map(lambda x:[(x[0]+x[2])/2,(x[1]+x[3])/2],lines1)))
+        points2 = np.array(list(map(lambda x:[(x[0]+x[2])/2,(x[1]+x[3])/2],lines2)))
         
 
 
 
-
-    lines1 = []
-    lines2 = []
-    for idxs in points:
-        item = lines[idxs]
-        if len(item)>0:
-            if (item[0][1]+item[0][3])/2 > (item[1][1]+item[1][3])/2:
-                lines1.append(item[0]);lines2.append(item[1])
-            else:
-                lines2.append(item[0]);lines1.append(item[1])
-
-    #lines = lines[list(set([item for sublist in points for item in sublist]))]
-
-    if lines1 is not None and len(lines1)>1:
-        for line in lines1:
-            x1, y1, x2, y2 = line
-            cv2.line(result_image, (x1, y1), (x2, y2), (0, 255, 0), 5)
-
-    if lines2 is not None and len(lines2)>1:
-        for line in lines2:
-            x1, y1, x2, y2 = line
-            cv2.line(result_image, (x1, y1), (x2, y2), (0, 0, 255), 5)
-    
-    points1 = np.array(list(map(lambda x:[(x[0]+x[2])/2,(x[1]+x[3])/2],lines1)))
-    points2 = np.array(list(map(lambda x:[(x[0]+x[2])/2,(x[1]+x[3])/2],lines2)))
-    
-    if len(points1)>5:
-        return get_imshows(result_image,image,gray,edges,lines,points1,points2)
-    else:
-        return no_lines_imshow(edges,image,gray)
+        
+        if len(points1)>10:
+            if g==0:
+                continue
+            return get_imshows(result_image,image,gray,edges,lines,points1,points2)
+        elif g==1:
+            return no_lines_imshow(edges,image,gray)
+            
 
 def get_imshows(result_image,image,gray,edges,lines,points1,points2):
+    print(points2)
     points_m = np.int32((np.array(points1)+np.array(points2))/2)
     paxos = np.mean(np.abs(points1[:,1]-points2[:,1]))
     x_curve, y_curve, poly = find_curve(points_m,degree = 3)

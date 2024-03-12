@@ -69,7 +69,6 @@ class drone_sim():
         dt = time.time() - self.time
         self.time = time.time()
         movement_vector = tuple(np.array(movement_vector)*dt)
-        print(movement_vector,dt)
         rotation_angle = rotation_angle*dt
 
         movement_vector = np.array(movement_vector)
