@@ -3,7 +3,7 @@ import numpy as np
 import math
 import time
 
-def curve_masking(points, curve_coefficients,image_shape,enabled = False):
+def curve_masking(points, curve_coefficients,image_shape,enabled = True):
     if enabled:
         points_x = list(map(lambda x:x[0],points))
         points_y = list(map(lambda x:x[1],points))
@@ -31,7 +31,7 @@ def cv2_curve_points(points,degree=4):
     y_curve = np.polyval(coefficients, x_curve)
     return x_curve,y_curve,coefficients
 
-def find_curve(points, num_iterations=100, threshold=5,degree=4):
+def find_curve(points, num_iterations=100, threshold=5,degree=2):
     best_model = None
     best_inliers = None
     points = np.array(points)
@@ -263,7 +263,7 @@ def image_analysis(image,paxos = None,old_curve = None):
             lines1 = lines1_g0+[np.array(l[0]) for l in lines1]
             lines2 = rev_rotate_lines(edges,np.array(lines2))
             lines2 = lines2_g0+[np.array(l[0]) for l in lines2]
-            lines = np.concatenate((lines,lines_g0))
+            lines = np.concatenate((lines_g0,lines))
         if lines1 is not None and len(lines1)>1:
             #print(lines1)
             for line in lines1:
@@ -295,7 +295,7 @@ def get_imshows(result_image,image,gray,edges,lines,points1,points2):
     print(points2)
     points_m = np.int32((np.array(points1)+np.array(points2))/2)
     paxos = np.mean(np.abs(points1[:,1]-points2[:,1]))
-    x_curve, y_curve, poly = find_curve(points_m,degree = 3)
+    x_curve, y_curve, poly = find_curve(points_m,degree = 2)
     if poly is not None:
         poly_der = np.polyder(poly)
         y_error = result_image.shape[0]/2-np.polyval(poly,result_image.shape[1]/2)
