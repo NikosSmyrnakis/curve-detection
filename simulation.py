@@ -1,6 +1,7 @@
 import numpy as np
 import cv2
 import random 
+import time
 # Function to simulate drone movement and rotation
 def rotated_to_original(movement_vector_rotated, rotation_angle):
     # Convert rotation angle to radians
@@ -59,11 +60,18 @@ def simulate_drone_movement(image, drone_position, movement_vector, rotation_ang
     return rotated_roi,drone_position
 
 class drone_sim():
-    def __init__(self,initial_pos,image):
+    def __init__(self,initial_pos,image,start_time):
+        self.time = start_time
         self.drone_pos = initial_pos
         self.drone_map = image
         self.total_rot = 0
     def step(self,movement_vector,rotation_angle,noise = [0.95,1.05]):
+        dt = time.time() - self.time
+        self.time = time.time()
+        movement_vector = tuple(np.array(movement_vector)*dt)
+        print(movement_vector,dt)
+        rotation_angle = rotation_angle*dt
+
         movement_vector = np.array(movement_vector)
         movement_vector = tuple([np.random.normal(*noise)*movement_vector[0],np.random.normal(*noise)*movement_vector[1]])
         rotation_angle = np.random.normal(*noise)*rotation_angle

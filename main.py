@@ -7,6 +7,7 @@ from image_analysis import image_analysis
 from simulation import drone_sim
 from drone_control import get_movment
 from drone_tools import zoom
+import time
 
 import warnings
 
@@ -27,7 +28,7 @@ if __name__ == "__main__":
     movement_vector = (0,0); rotation_speed = 0; start_time = time.time(); fps = 10000; i=0; paxos = None
 
     #setup environment
-    env = drone_sim((0, 270, 400, 400),image)
+    env = drone_sim((0, 270, 400, 400),image,time.time())
     old_curve = None
     while True:
 
