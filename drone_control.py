@@ -1,7 +1,7 @@
         
 def get_movment(slope_error,y_error,rotation_coe = 1,movement_coe = 1):
     if slope_error is not None:
-        mxv = 40
+        mxv = 10
         if slope_error > mxv:
             slope_error = mxv
         elif slope_error <-mxv:

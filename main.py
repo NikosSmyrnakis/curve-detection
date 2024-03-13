@@ -35,6 +35,7 @@ if __name__ == "__main__":
         #apply the movement and go one step in the simulation 
         frame,drone_position =  env.step(movement_vector, rotation_speed)#,[0.8,1.2])
         #image analysis
+        #edges,result_image, gray,paxos,slope_error,y_error,test_curve = image_analysis(frame,paxos,old_curve)
         edges,result_image, gray,paxos,slope_error,y_error,test_curve = image_analysis(frame,paxos,old_curve)
         if test_curve is not None or mask_attempts==2:
             mask_attempts = 0

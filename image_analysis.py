@@ -9,8 +9,9 @@ def curve_masking(points, curve_coefficients,image_shape,enabled = True):
         points_y = list(map(lambda x:x[1],points))
         if curve_coefficients is not None:
             diffs = np.abs(np.polyval(curve_coefficients, points_x) - points_y)
-
-            return np.where(diffs<image_shape[0]/5)[0]
+            threshold = np.percentile(diffs, 80)
+            return np.where(diffs<threshold)[0]
+            #return np.where(diffs<image_shape[0]/5)[0]
         else:
             return list(range(len(points)))
     else:
@@ -31,9 +32,10 @@ def cv2_curve_points(points,degree=4):
     y_curve = np.polyval(coefficients, x_curve)
     return x_curve,y_curve,coefficients
 
-def find_curve(points, num_iterations=100, threshold=5,degree=2):
+def find_curve(points, num_iterations=100, threshold=20,degree=2):
     best_model = None
     best_inliers = None
+    best_res = None
     points = np.array(points)
     if len(points)<5:
         return None,None,None
@@ -47,21 +49,25 @@ def find_curve(points, num_iterations=100, threshold=5,degree=2):
 
         # Calculate the residuals from all points to the model
         residuals = np.abs(np.polyval(model, points[:, 0]) - points[:, 1])
-
+        threshold = np.percentile(residuals, 90)
+        #print(residuals)
         # Count inliers based on the threshold
-        inliers = np.where(residuals < threshold)[0]
+        inliers = np.where(residuals <= threshold)[0]
 
         # Update the best model if the current model has more inliers
-        if best_inliers is None or len(inliers) > len(best_inliers):
+        if best_res is None or best_res > np.sum(residuals[inliers]):
             best_model = model
             best_inliers = inliers
+            best_res = np.sum(residuals[inliers])
 
     # Fit the final model using all inliers
     #final_model = np.polyfit(points[best_inliers, 0], points[best_inliers, 1], degree)
     points = points[best_inliers]
+
     #return list(map(lambda x:x[0],points)),list(map(lambda x:x[1],points))
 
     if len(points)>0:
+        #print(len(best_inliers))
         return cv2_curve_points(points,degree)
     else:
         return None,None,None
@@ -109,33 +115,16 @@ def sharpen_image_gray(image, sharpen_strength=3):
 
     return sharpened_image
 
-def rotate_points(edges,points):
-    height, width = edges.shape[:2]
-    center_x = width // 2
-    center_y = height // 2
-    rotated_points = np.array([[center_x + (y - center_y), center_y - (x - center_x)] for x, y in points], dtype=np.int32)
-    return rotated_points
 
-def rev_rotate_points(edges,points):
-    height, width = edges.shape[:2]
-    center_x = width // 2
-    center_y = height // 2
-    rotated_points = np.array([[center_x - (y - center_y), center_y + (x - center_x)] for x, y in points], dtype=np.int32)
-    return rotated_points
 
-def rotate_lines(edges,lines):
+def flip_lines(edges,lines):
     height, width = edges.shape[:2]
     center_x = width // 2
     center_y = height // 2
-    rotated_lines = np.array([[[y1, height - x1, y2, height - x2]] for [[x1, y1, x2, y2]] in lines], dtype=np.int32)
+    #print('--->',lines.shape)
+    rotated_lines = np.array([[[y1,x1,y2,x2]] for [[x1, y1, x2, y2]] in lines], dtype=np.int32)
     return rotated_lines
 
-def rev_rotate_lines(edges,lines):
-        height, width = edges.shape[:2]
-        center_x = width // 2
-        center_y = height // 2
-        rotated_lines = np.array([[[width - y1, x1, width - y2, x2]] for [x1, y1, x2, y2] in lines], dtype=np.int32)
-        return rotated_lines
 
 def image_analysis(image,paxos = None,old_curve = None):
     #image[image<80] = image[image<80]*0.5
@@ -160,7 +149,7 @@ def image_analysis(image,paxos = None,old_curve = None):
     if paxos!=None:
         #print(paxos)
         min_dis = 0.6*paxos
-        max_dis = 1.2*paxos
+        max_dis = 1.4*paxos
     checks = 10
     # Apply HoughLinesP to detect lines
     dlines = cv2.HoughLinesP(edges, 1, np.pi/180, threshold=10, minLineLength=20, maxLineGap=10)
@@ -171,7 +160,7 @@ def image_analysis(image,paxos = None,old_curve = None):
     for g in range(2):
         if g==1:
             width, height = edges.shape[:2]
-            lines = rotate_lines(edges,dlines)
+            lines = flip_lines(edges,dlines)
         else:
             height, width = edges.shape[:2]
             lines = dlines
@@ -259,9 +248,9 @@ def image_analysis(image,paxos = None,old_curve = None):
             lines2_g0 = lines2
             lines_g0 = lines
         if g==1:
-            lines1 = rev_rotate_lines(edges,np.array(lines1))
+            lines1 = flip_lines(edges,np.array(lines1).reshape(-1,1,4))
             lines1 = lines1_g0+[np.array(l[0]) for l in lines1]
-            lines2 = rev_rotate_lines(edges,np.array(lines2))
+            lines2 = flip_lines(edges,np.array(lines2).reshape(-1,1,4))
             lines2 = lines2_g0+[np.array(l[0]) for l in lines2]
             lines = np.concatenate((lines_g0,lines))
         if lines1 is not None and len(lines1)>1:
@@ -283,19 +272,20 @@ def image_analysis(image,paxos = None,old_curve = None):
 
 
         
-        if len(points1)>10:
+        if len(points1)>4:
             if g==0:
                 continue
             return get_imshows(result_image,image,gray,edges,lines,points1,points2)
         elif g==1:
+            print("here",len(points1))
             return no_lines_imshow(edges,image,gray)
             
 
 def get_imshows(result_image,image,gray,edges,lines,points1,points2):
-    print(points2)
+    #print(points2)
     points_m = np.int32((np.array(points1)+np.array(points2))/2)
     paxos = np.mean(np.abs(points1[:,1]-points2[:,1]))
-    x_curve, y_curve, poly = find_curve(points_m,degree = 2)
+    x_curve, y_curve, poly = find_curve(points_m,degree = 3)
     if poly is not None:
         poly_der = np.polyder(poly)
         y_error = result_image.shape[0]/2-np.polyval(poly,result_image.shape[1]/2)
